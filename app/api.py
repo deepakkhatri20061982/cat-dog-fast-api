@@ -2,10 +2,15 @@ import os
 import io
 import numpy as np
 import tensorflow as tf
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image
+import time
+
+from prometheus_client import Counter, Histogram, generate_latest
+from prometheus_client import CONTENT_TYPE_LATEST
+from starlette.responses import Response
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(BASE_DIR, "models", "model.h5")
@@ -19,6 +24,43 @@ os.makedirs(SAMPLES_DIR, exist_ok=True)
 os.makedirs(PREDS_DIR, exist_ok=True)
 
 app = FastAPI(title="Cats vs Dogs API")
+
+# Metrics
+REQUEST_COUNT = Counter(
+    "api_request_count",
+    "Total API Request Count",
+    ["method", "endpoint", "http_status"]
+)
+
+REQUEST_LATENCY = Histogram(
+    "api_request_latency_seconds",
+    "API Request Latency",
+    ["endpoint"]
+)
+
+@app.middleware("http")
+async def monitor_requests(request: Request, call_next):
+    start_time = time.time()
+    
+    response = await call_next(request)
+    
+    latency = time.time() - start_time
+    
+    REQUEST_COUNT.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        http_status=response.status_code
+    ).inc()
+    
+    REQUEST_LATENCY.labels(
+        endpoint=request.url.path
+    ).observe(latency)
+    
+    return response
+
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 # Load model
 model = tf.keras.models.load_model(MODEL_PATH)
