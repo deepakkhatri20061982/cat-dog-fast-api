@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+numpy
+pydantic
+requests
+joblib
+torch
+python-multipart
+
